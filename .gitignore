@@ -1,0 +1,34 @@
+# Root Git ignore for Safemart
+
+# Node modules
+node_modules/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment files
+*.env
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# VS Code
+.vscode/
+
+# Backend
+Backend/node_modules/
+Backend/tmp/
+Backend/*.log
+Backend/.env
+
+# Frontend
+safemart-frontend/node_modules/
+safemart-frontend/dist/
+safemart-frontend/*.log
+safemart-frontend/.env
