@@ -1,4 +1,5 @@
 import express from "express";
+import cors from "cors";
 import cookieParser from "cookie-parser";
 import fileUpload from "express-fileupload";
 import { errorHandler } from "./middleware/error.middleware.js";
@@ -18,6 +19,20 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
+
+// CORS Configuration
+const allowedOrigins = (process.env.CORS_ALLOWED_ORIGIN || "http://localhost:5173").split(",").map((origin) => origin.trim());
+app.use(cors({
+    origin: (origin, callback) => {
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error("CORS policy: origin not allowed"));
+        }
+    },
+    credentials: true,
+}));
+app.options("*", cors({ origin: allowedOrigins, credentials: true }));
 
 app.use(fileUpload({
     useTempFiles: true,
