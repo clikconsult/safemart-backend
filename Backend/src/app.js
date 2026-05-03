@@ -21,7 +21,18 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
 // CORS Configuration
-const allowedOrigins = (process.env.CORS_ALLOWED_ORIGIN || "http://localhost:5173").split(",").map((origin) => origin.trim());
+
+app.use(cors({
+  origin: [
+    "http://localhost:5173",
+    "https://safemartng.com",
+    "https://www.safemartng.com"
+  ],
+  credentials: true,
+}))
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
 app.use(cors({
     origin: (origin, callback) => {
         if (!origin || allowedOrigins.includes(origin)) {
