@@ -32,3 +32,8 @@ safemart-frontend/node_modules/
 safemart-frontend/dist/
 safemart-frontend/*.log
 safemart-frontend/.env
+
+# Archives
+*.zip
+*.tar
+*.tar.gz
