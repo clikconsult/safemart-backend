@@ -9,7 +9,7 @@ import { verifyJWT } from "../middleware/auth.middleware.js";
 const router = Router();
 
 router.post("/initialize", verifyJWT, initializePayment);
-router.get("/verify/:reference", verifyPayment);
+router.get("/verify/:reference", verifyJWT, verifyPayment);
 router.post("/webhook", paystackWebhook);
 
 export default router;
