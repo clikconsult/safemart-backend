@@ -11,7 +11,9 @@ yarn-error.log*
 pnpm-debug.log*
 
 # Environment files
-*.env
+.env
+.env.*
+!.env.example
 
 # OS files
 .DS_Store
@@ -26,12 +28,16 @@ Backend/node_modules/
 Backend/tmp/
 Backend/*.log
 Backend/.env
+Backend/.env.*
+!Backend/.env.example
 
 # Frontend
 safemart-frontend/node_modules/
 safemart-frontend/dist/
 safemart-frontend/*.log
 safemart-frontend/.env
+safemart-frontend/.env.*
+!safemart-frontend/.env.example
 
 # Archives
 *.zip

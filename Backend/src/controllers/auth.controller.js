@@ -13,19 +13,37 @@ const generateTokens = async (userId) => {
     return { accessToken, refreshToken };
 };
 
-// Cookie options
-const cookieOptions = {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: process.env.NODE_ENV === "production" ? "lax" : "strict",
-    path: "/",
-};
+const cookieResponseData = (user, accessToken) => ({
+    success: true,
+    data: user,
+    accessToken,
+});
+
+function clearAuthCookies(res) {
+    const cookieOptions = getCookieOptions();
+
+    return res
+        .clearCookie("accessToken", cookieOptions)
+        .clearCookie("refreshToken", cookieOptions);
+}
+
+function getCookieOptions() {
+    const sameSite = process.env.COOKIE_SAME_SITE ||
+        (process.env.NODE_ENV === "production" ? "lax" : "strict");
+
+    return {
+        httpOnly: true,
+        secure: process.env.COOKIE_SECURE === "true" || process.env.NODE_ENV === "production",
+        sameSite: sameSite.toLowerCase(),
+        path: "/",
+        ...(process.env.COOKIE_DOMAIN ? { domain: process.env.COOKIE_DOMAIN } : {}),
+    };
+}
 
 export const register = async (req, res) => {
     try {
+        const cookieOptions = getCookieOptions();
         const { fullName, email, password, phone } = req.body;
-        console.log("Step 2: Body parsed", { fullName, email, phone });
-
         if (!fullName || !email || !password) {
             return res.status(400).json({
                 success: false,
@@ -51,12 +69,7 @@ export const register = async (req, res) => {
         return res.status(201)
             .cookie("accessToken", accessToken, cookieOptions)
             .cookie("refreshToken", refreshToken, cookieOptions)
-            .json({
-                success: true,
-                message: "Account created successfully",
-                data: createdUser,
-                accessToken,
-            });
+            .json({ ...cookieResponseData(createdUser, accessToken), message: "Account created successfully" });
 
     } catch (error) {
         return res.status(500).json({
@@ -71,6 +84,7 @@ export const register = async (req, res) => {
 // ----------------------
 export const login = async (req, res) => {
     try {
+        const cookieOptions = getCookieOptions();
         const { email, password } = req.body;
 
         // Check all fields are provided
@@ -119,12 +133,7 @@ export const login = async (req, res) => {
             .status(200)
             .cookie("accessToken", accessToken, cookieOptions)
             .cookie("refreshToken", refreshToken, cookieOptions)
-            .json({
-                success: true,
-                message: "Logged in successfully",
-                data: loggedInUser,
-                accessToken,
-            });
+            .json({ ...cookieResponseData(loggedInUser, accessToken), message: "Logged in successfully" });
 
     } catch (error) {
         return res.status(500).json({
@@ -139,17 +148,16 @@ export const login = async (req, res) => {
 // ----------------------
 export const logout = async (req, res) => {
     try {
-        // Remove refresh token from DB
-        await User.findByIdAndUpdate(
-            req.user._id,
-            { $unset: { refreshToken: 1 } },
-            { new: true }
-        );
+        if (req.user?._id) {
+            await User.findByIdAndUpdate(
+                req.user._id,
+                { $unset: { refreshToken: 1 } },
+                { returnDocument: "after" }
+            );
+        }
 
-        return res
+        return clearAuthCookies(res)
             .status(200)
-            .clearCookie("accessToken", cookieOptions)
-            .clearCookie("refreshToken", cookieOptions)
             .json({
                 success: true,
                 message: "Logged out successfully",
@@ -159,6 +167,53 @@ export const logout = async (req, res) => {
         return res.status(500).json({
             success: false,
             message: error.message,
+        });
+    }
+};
+
+export const refreshAccessToken = async (req, res) => {
+    try {
+        const incomingRefreshToken = req.cookies?.refreshToken;
+
+        if (!incomingRefreshToken) {
+            return res.status(401).json({
+                success: false,
+                message: "Refresh token is required",
+            });
+        }
+
+        const decoded = jwt.verify(incomingRefreshToken, process.env.REFRESH_TOKEN_SECRET);
+        const user = await User.findById(decoded._id);
+
+        if (!user || user.refreshToken !== incomingRefreshToken) {
+            return clearAuthCookies(res).status(401).json({
+                success: false,
+                message: "Invalid refresh token",
+            });
+        }
+
+        if (!user.isActive) {
+            return clearAuthCookies(res).status(403).json({
+                success: false,
+                message: "Your account has been deactivated",
+            });
+        }
+
+        const { accessToken, refreshToken } = await generateTokens(user._id);
+        const safeUser = await User.findById(user._id).select("-password -refreshToken");
+        const cookieOptions = getCookieOptions();
+
+        return res.status(200)
+            .cookie("accessToken", accessToken, cookieOptions)
+            .cookie("refreshToken", refreshToken, cookieOptions)
+            .json({
+                ...cookieResponseData(safeUser, accessToken),
+                message: "Session refreshed successfully",
+            });
+    } catch (error) {
+        return clearAuthCookies(res).status(401).json({
+            success: false,
+            message: "Invalid or expired refresh token",
         });
     }
 };

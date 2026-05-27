@@ -1,4 +1,63 @@
 import { Product } from "../models/product.model.js";
+import {
+    clampNumber,
+    normalizeBoolean,
+    normalizeNumber,
+    normalizeOptionalString,
+    normalizeString,
+} from "../utils/request.utils.js";
+
+const PRODUCT_UPDATE_FIELDS = new Set([
+    "name",
+    "description",
+    "price",
+    "discountPrice",
+    "category",
+    "brand",
+    "stock",
+    "isFeatured",
+    "images",
+    "isActive",
+]);
+
+function normalizeProductPayload(payload, { partial = false } = {}) {
+    const normalized = {};
+
+    if (!partial || Object.prototype.hasOwnProperty.call(payload, "name")) {
+        normalized.name = normalizeString(payload.name);
+    }
+    if (!partial || Object.prototype.hasOwnProperty.call(payload, "description")) {
+        normalized.description = normalizeString(payload.description);
+    }
+    if (!partial || Object.prototype.hasOwnProperty.call(payload, "price")) {
+        normalized.price = normalizeNumber(payload.price);
+    }
+    if (!partial || Object.prototype.hasOwnProperty.call(payload, "discountPrice")) {
+        normalized.discountPrice = normalizeNumber(payload.discountPrice, 0);
+    }
+    if (!partial || Object.prototype.hasOwnProperty.call(payload, "category")) {
+        normalized.category = normalizeString(payload.category);
+    }
+    if (!partial || Object.prototype.hasOwnProperty.call(payload, "brand")) {
+        normalized.brand = normalizeOptionalString(payload.brand);
+    }
+    if (!partial || Object.prototype.hasOwnProperty.call(payload, "stock")) {
+        normalized.stock = normalizeNumber(payload.stock);
+    }
+    if (!partial || Object.prototype.hasOwnProperty.call(payload, "isFeatured")) {
+        normalized.isFeatured = normalizeBoolean(payload.isFeatured);
+    }
+    if (!partial || Object.prototype.hasOwnProperty.call(payload, "isActive")) {
+        normalized.isActive = normalizeBoolean(payload.isActive, true);
+    }
+    if (!partial || Object.prototype.hasOwnProperty.call(payload, "images")) {
+        normalized.images = Array.isArray(payload.images)
+            ? payload.images.filter((image) => typeof image === "string" && image.trim())
+            : [];
+    }
+
+    return normalized;
+}
 
 // ----------------------
 // GET ALL PRODUCTS
@@ -14,6 +73,8 @@ export const getAllProducts = async (req, res) => {
             sort,
             page = 1,
             limit = 10,
+            isFeatured,
+            inStock,
         } = req.query;
 
         const query = { isActive: true };
@@ -33,6 +94,14 @@ export const getAllProducts = async (req, res) => {
             query.brand = { $regex: brand, $options: "i" };
         }
 
+        if (String(isFeatured) === "true") {
+            query.isFeatured = true;
+        }
+
+        if (String(inStock) === "true") {
+            query.stock = { ...(query.stock || {}), $gt: 0 };
+        }
+
         // Filter by price range
         if (minPrice || maxPrice) {
             query.price = {};
@@ -49,19 +118,21 @@ export const getAllProducts = async (req, res) => {
         else sortOption = { createdAt: -1 };
 
         // Pagination
-        const skip = (Number(page) - 1) * Number(limit);
+        const safePage = clampNumber(page, { min: 1, max: 100000, fallback: 1 });
+        const safeLimit = clampNumber(limit, { min: 1, max: 50, fallback: 10 });
+        const skip = (safePage - 1) * safeLimit;
         const total = await Product.countDocuments(query);
 
         const products = await Product.find(query)
             .sort(sortOption)
             .skip(skip)
-            .limit(Number(limit));
+            .limit(safeLimit);
 
         return res.status(200).json({
             success: true,
             total,
-            page: Number(page),
-            pages: Math.ceil(total / Number(limit)),
+            page: safePage,
+            pages: Math.ceil(total / safeLimit),
             data: products,
         });
 
@@ -184,29 +255,7 @@ export const addReview = async (req, res) => {
 // ----------------------
 export const createProduct = async (req, res) => {
     try {
-        const {
-            name,
-            description,
-            price,
-            discountPrice,
-            category,
-            brand,
-            stock,
-            isFeatured,
-            images,
-        } = req.body;
-
-        const product = await Product.create({
-            name,
-            description,
-            price,
-            discountPrice,
-            category,
-            brand,
-            stock,
-            isFeatured,
-            images,
-        });
+        const product = await Product.create(normalizeProductPayload(req.body));
 
         return res.status(201).json({
             success: true,
@@ -227,10 +276,21 @@ export const createProduct = async (req, res) => {
 // ----------------------
 export const updateProduct = async (req, res) => {
     try {
+        const allowedPayload = Object.fromEntries(
+            Object.entries(req.body).filter(([key]) => PRODUCT_UPDATE_FIELDS.has(key))
+        );
+
+        if (Object.keys(allowedPayload).length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: "No valid product fields were provided for update",
+            });
+        }
+
         const product = await Product.findByIdAndUpdate(
             req.params.id,
-            req.body,
-            { new: true, runValidators: true }
+            normalizeProductPayload(allowedPayload, { partial: true }),
+            { returnDocument: "after", runValidators: true }
         );
 
         if (!product) {

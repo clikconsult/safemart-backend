@@ -40,3 +40,22 @@ export const commitOrderSideEffects = async (order, session) => {
 
     return order;
 };
+
+export const releaseOrderInventory = async (order, session) => {
+    if (!order.inventoryCommitted) {
+        return order;
+    }
+
+    for (const item of order.items) {
+        await Product.findByIdAndUpdate(
+            item.product,
+            { $inc: { stock: item.quantity, sold: -item.quantity } },
+            session ? { session } : undefined
+        );
+    }
+
+    order.inventoryCommitted = false;
+    order.inventoryCommittedAt = undefined;
+
+    return order;
+};

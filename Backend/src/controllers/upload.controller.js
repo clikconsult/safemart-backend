@@ -1,15 +1,38 @@
 import { cloudinary } from "../config/cloudinary.js";
 import { User } from "../models/user.model.js";
+import fs from "fs/promises";
+
+const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+const MAX_UPLOAD_SIZE = Number(process.env.MAX_UPLOAD_BYTES || 5 * 1024 * 1024);
+
+async function cleanupTempFile(file) {
+    if (!file?.tempFilePath) return;
+    try {
+        await fs.unlink(file.tempFilePath);
+    } catch {}
+}
+
+function validateImageFile(file) {
+    if (!file?.tempFilePath) {
+        return "Upload processing failed. Please try again."
+    }
+
+    if (!ALLOWED_IMAGE_TYPES.has(file.mimetype)) {
+        return "Only JPG, PNG, WEBP, and GIF images are allowed"
+    }
+
+    if (file.size > MAX_UPLOAD_SIZE) {
+        return "Image exceeds the maximum allowed size"
+    }
+
+    return null
+}
 
 // ----------------------
 // UPLOAD PRODUCT IMAGES (Multiple)
 // ----------------------
 export const uploadProductImages = async (req, res) => {
     try {
-        console.log("Files Keys:", req.files ? Object.keys(req.files) : "NULL");
-        console.log("Body Keys:", Object.keys(req.body));
-        console.log("req.files:", req.files);
-
         if (!req.files || !req.files.images) {
             return res.status(400).json({
                 success: false,
@@ -34,13 +57,26 @@ export const uploadProductImages = async (req, res) => {
         const uploadedPublicIds = [];
 
         for (const image of images) {
-            const result = await cloudinary.uploader.upload(image.tempFilePath, {
-                folder: "safemart/products",
-                transformation: [{ width: 1200, height: 1200, crop: "limit" }],
-            });
+            const validationMessage = validateImageFile(image);
+            if (validationMessage) {
+                await cleanupTempFile(image);
+                return res.status(400).json({
+                    success: false,
+                    message: validationMessage,
+                });
+            }
 
-            uploadedUrls.push(result.secure_url);
-            uploadedPublicIds.push(result.public_id);
+            try {
+                const result = await cloudinary.uploader.upload(image.tempFilePath, {
+                    folder: "safemart/products",
+                    transformation: [{ width: 1200, height: 1200, crop: "limit" }],
+                });
+
+                uploadedUrls.push(result.secure_url);
+                uploadedPublicIds.push(result.public_id);
+            } finally {
+                await cleanupTempFile(image);
+            }
         }
 
         return res.status(200).json({
@@ -53,11 +89,9 @@ export const uploadProductImages = async (req, res) => {
         });
 
     } catch (error) {
-        console.error("Upload error:", error);
         return res.status(500).json({
             success: false,
             message: "Image upload failed",
-            error: error.message,
         });
     }
 };
@@ -84,11 +118,9 @@ export const deleteProductImage = async (req, res) => {
         });
 
     } catch (error) {
-        console.error("Delete error:", error);
         return res.status(500).json({
             success: false,
             message: "Failed to delete image",
-            error: error.message,
         });
     }
 };
@@ -105,19 +137,33 @@ export const uploadUserAvatar = async (req, res) => {
             });
         }
 
-        const result = await cloudinary.uploader.upload(
-            req.files.avatar.tempFilePath,
-            {
-                folder: "safemart/avatars",
-                transformation: [{ width: 400, height: 400, crop: "fill" }],
-            }
-        );
+        const validationMessage = validateImageFile(req.files.avatar);
+        if (validationMessage) {
+            await cleanupTempFile(req.files.avatar);
+            return res.status(400).json({
+                success: false,
+                message: validationMessage,
+            });
+        }
+
+        let result;
+        try {
+            result = await cloudinary.uploader.upload(
+                req.files.avatar.tempFilePath,
+                {
+                    folder: "safemart/avatars",
+                    transformation: [{ width: 400, height: 400, crop: "fill" }],
+                }
+            );
+        } finally {
+            await cleanupTempFile(req.files.avatar);
+        }
 
         // Update user
         const updatedUser = await User.findByIdAndUpdate(
             req.user._id,
             { avatar: result.secure_url },
-            { new: true }
+            { returnDocument: "after" }
         );
 
         return res.status(200).json({
@@ -130,11 +176,9 @@ export const uploadUserAvatar = async (req, res) => {
         });
 
     } catch (error) {
-        console.error("Avatar upload error:", error);
         return res.status(500).json({
             success: false,
             message: "Avatar upload failed",
-            error: error.message,
         });
     }
 };

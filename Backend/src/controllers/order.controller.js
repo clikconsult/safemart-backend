@@ -2,7 +2,10 @@ import mongoose from "mongoose";
 import { Order } from "../models/order.model.js";
 import { Cart } from "../models/cart.model.js";
 import { Product } from "../models/product.model.js";
-import { commitOrderSideEffects } from "../services/order-fulfillment.service.js";
+import { commitOrderSideEffects, releaseOrderInventory } from "../services/order-fulfillment.service.js";
+import { clampNumber, normalizeString } from "../utils/request.utils.js";
+
+const PAYMENT_RESERVATION_MINUTES = Number(process.env.PAYMENT_RESERVATION_MINUTES || 30);
 
 // ----------------------
 // CREATE ORDER
@@ -64,7 +67,10 @@ export const createOrder = async (req, res) => {
                 shippingAddress,
                 paymentInfo: {
                     method: paymentMethod,
-                    status: paymentMethod === "cash_on_delivery" ? "pending" : "pending",
+                    status: "pending",
+                    ...(paymentMethod === "paystack"
+                        ? { expiresAt: new Date(Date.now() + PAYMENT_RESERVATION_MINUTES * 60 * 1000) }
+                        : {}),
                 },
                 totalItems: cart.totalItems,
                 totalPrice: cart.totalPrice,
@@ -72,9 +78,7 @@ export const createOrder = async (req, res) => {
                 finalPrice,
             });
 
-            if (paymentMethod === "cash_on_delivery") {
-                await commitOrderSideEffects(order, session);
-            }
+            await commitOrderSideEffects(order, session);
 
             await order.save({ session });
             createdOrder = order;
@@ -164,7 +168,7 @@ export const getOrderById = async (req, res) => {
 
 export const cancelOrder = async (req, res) => {
     try {
-        const { reason } = req.body;
+        const reason = normalizeString(req.body.reason, { fallback: "Cancelled by customer" });
         const order = await Order.findById(req.params.id);
 
         if (!order) {
@@ -190,20 +194,18 @@ export const cancelOrder = async (req, res) => {
             });
         }
 
-        order.orderStatus = "cancelled";
-        order.cancellationReason = reason || "Cancelled by customer";
-
-        // Restore product stock
-        for (const item of order.items) {
-            await Product.findByIdAndUpdate(item.product, {
-                $inc: { stock: item.quantity, sold: -item.quantity },
+        if (order.paymentInfo?.status === "paid") {
+            return res.status(400).json({
+                success: false,
+                message: "Paid orders cannot be cancelled without a refund process",
             });
         }
 
         order.orderStatus = "cancelled";
-        order.cancellationReason = reason || "Cancelled by customer";
+        order.cancellationReason = reason;
         order.cancelledAt = new Date();
         order.statusHistory.push({ status: "cancelled", changedAt: new Date() });
+        await releaseOrderInventory(order);
 
         await order.save();
 
@@ -231,20 +233,22 @@ export const getAllOrders = async (req, res) => {
         const query = {};
         if (status) query.orderStatus = status;
 
-        const skip = (Number(page) - 1) * Number(limit);
+        const safePage = clampNumber(page, { min: 1, max: 100000, fallback: 1 });
+        const safeLimit = clampNumber(limit, { min: 1, max: 100, fallback: 10 });
+        const skip = (safePage - 1) * safeLimit;
         const total = await Order.countDocuments(query);
 
         const orders = await Order.find(query)
             .populate("user", "fullName email phone")
             .sort({ createdAt: -1 })
             .skip(skip)
-            .limit(Number(limit));
+            .limit(safeLimit);
 
         return res.status(200).json({
             success: true,
             total,
-            page: Number(page),
-            pages: Math.ceil(total / Number(limit)),
+            page: safePage,
+            pages: Math.ceil(total / safeLimit),
             data: orders,
         });
 
@@ -262,7 +266,8 @@ export const getAllOrders = async (req, res) => {
 
 export const updateOrderStatus = async (req, res) => {
     try {
-        const { status, note } = req.body;
+        const status = normalizeString(req.body.status);
+        const note = normalizeString(req.body.note, { fallback: "" });
         const order = await Order.findById(req.params.id);
         const allowedStatuses = ["pending", "processing", "shipped", "delivered", "cancelled"];
         const allowedTransitions = {
@@ -310,14 +315,7 @@ export const updateOrderStatus = async (req, res) => {
         }
 
         if (status === "cancelled" && order.inventoryCommitted) {
-            for (const item of order.items) {
-                await Product.findByIdAndUpdate(item.product, {
-                    $inc: { stock: item.quantity, sold: -item.quantity },
-                });
-            }
-
-            order.inventoryCommitted = false;
-            order.inventoryCommittedAt = undefined;
+            await releaseOrderInventory(order);
         }
 
         order.orderStatus = status;

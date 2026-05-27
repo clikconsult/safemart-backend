@@ -1,0 +1,84 @@
+name: Safemart CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend Sanity
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: Backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Write CI env file
+        run: |
+          cat <<'EOF' > .env
+          PORT=4000
+          MONGODB_URI=mongodb://localhost:27017
+          ACCESS_TOKEN_SECRET=test_access_secret
+          ACCESS_TOKEN_EXPIRY=1d
+          REFRESH_TOKEN_SECRET=test_refresh_secret
+          REFRESH_TOKEN_EXPIRY=7d
+          PAYSTACK_SECRET_KEY=test_paystack_secret
+          PAYSTACK_PUBLIC_KEY=test_paystack_public
+          CLOUDINARY_CLOUD_NAME=test_cloud
+          CLOUDINARY_API_KEY=test_key
+          CLOUDINARY_API_SECRET=test_secret
+          GMAIL_USER=test@example.com
+          GMAIL_APP_PASSWORD=test-password
+          ADMIN_EMAIL=admin@example.com
+          FRONTEND_URL=http://localhost:5173
+          CORS_ALLOWED_ORIGIN=http://localhost:5173
+          COOKIE_SAME_SITE=strict
+          COOKIE_SECURE=false
+          EOF
+
+      - name: Verify app module loads
+        run: node -e "import('./src/app.js').then(() => console.log('backend app ok')).catch(err => { console.error(err); process.exit(1) })"
+
+      - name: Verify auth controller loads
+        run: node -e "import('./src/controllers/auth.controller.js').then(() => console.log('backend auth ok')).catch(err => { console.error(err); process.exit(1) })"
+
+  frontend:
+    name: Frontend Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: safemart-frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: safemart-frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Write CI env file
+        run: echo "VITE_API_URL=http://localhost:4000" > .env
+
+      - name: Build frontend
+        run: npm run build

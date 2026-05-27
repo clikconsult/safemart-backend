@@ -2,7 +2,32 @@ import axios from "axios";
 import crypto from "crypto";
 import mongoose from "mongoose";
 import { Order } from "../models/order.model.js";
-import { commitOrderSideEffects } from "../services/order-fulfillment.service.js";
+import { commitOrderSideEffects, releaseOrderInventory } from "../services/order-fulfillment.service.js";
+
+function isReservationExpired(order) {
+    const expiresAt = order.paymentInfo?.expiresAt;
+    return Boolean(expiresAt && new Date(expiresAt).getTime() < Date.now());
+}
+
+async function expirePendingOrder(order) {
+    if (order.orderStatus === "cancelled") {
+        return order;
+    }
+
+    await releaseOrderInventory(order);
+    order.orderStatus = "cancelled";
+    order.cancelledAt = new Date();
+    order.cancellationReason = "Payment window expired";
+    order.paymentInfo.status = "failed";
+    order.statusHistory.push({
+        status: "cancelled",
+        changedAt: new Date(),
+        note: "Payment window expired",
+    });
+    await order.save();
+
+    return order;
+}
 
 
 // ----------------------
@@ -41,6 +66,14 @@ export const initializePayment = async (req, res) => {
             return res.status(400).json({
                 success: false,
                 message: "This order is not configured for Paystack payment",
+            });
+        }
+
+        if (isReservationExpired(order)) {
+            await expirePendingOrder(order);
+            return res.status(410).json({
+                success: false,
+                message: "This payment session has expired. Please create a new order.",
             });
         }
 
@@ -83,7 +116,7 @@ export const initializePayment = async (req, res) => {
         console.log("Paystack error:", error.response?.data || error.message);
         return res.status(500).json({
             success: false,
-            message: error.response?.data || error.message,
+            message: error.response?.data?.message || error.message,
         });
     }
 };
@@ -134,6 +167,14 @@ export const verifyPayment = async (req, res) => {
             });
         }
 
+        if (isReservationExpired(order) && order.paymentInfo.status !== "paid") {
+            await expirePendingOrder(order);
+            return res.status(410).json({
+                success: false,
+                message: "This payment session expired before verification completed",
+            });
+        }
+
         if (String(metadata?.userId) !== String(order.user)) {
             return res.status(400).json({
                 success: false,
@@ -171,14 +212,11 @@ export const verifyPayment = async (req, res) => {
                 throw new Error("Order not found");
             }
 
-            if (!transactionalOrder.inventoryCommitted) {
-                await commitOrderSideEffects(transactionalOrder, session);
-            }
-
             if (transactionalOrder.paymentInfo.status !== "paid") {
                 transactionalOrder.paymentInfo.status = "paid";
                 transactionalOrder.paymentInfo.paidAt = new Date();
                 transactionalOrder.paymentInfo.paystackReference = reference;
+                transactionalOrder.paymentInfo.expiresAt = undefined;
                 transactionalOrder.orderStatus = "processing";
                 transactionalOrder.statusHistory.push({
                     status: "processing",
@@ -248,14 +286,16 @@ export const paystackWebhook = async (req, res) => {
                         return;
                     }
 
-                    if (!transactionalOrder.inventoryCommitted) {
-                        await commitOrderSideEffects(transactionalOrder, session);
+                    if (isReservationExpired(transactionalOrder) && transactionalOrder.paymentInfo.status !== "paid") {
+                        await expirePendingOrder(transactionalOrder);
+                        return;
                     }
 
                     if (transactionalOrder.paymentInfo.status !== "paid") {
                         transactionalOrder.paymentInfo.status = "paid";
                         transactionalOrder.paymentInfo.paidAt = new Date();
                         transactionalOrder.paymentInfo.paystackReference = reference;
+                        transactionalOrder.paymentInfo.expiresAt = undefined;
                         transactionalOrder.orderStatus = "processing";
                         transactionalOrder.statusHistory.push({
                             status: "processing",

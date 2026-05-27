@@ -79,6 +79,9 @@ const orderSchema = new mongoose.Schema(
             paystackReference: {
                 type: String,
             },
+            expiresAt: {
+                type: Date,
+            },
         },
         orderStatus: {
             type: String,

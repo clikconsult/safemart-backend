@@ -1,6 +1,7 @@
 import { User } from "../models/user.model.js";
 import { Product } from "../models/product.model.js";
 import { Order } from "../models/order.model.js";
+import { clampNumber, normalizeString } from "../utils/request.utils.js";
 
 // ----------------------
 // GET ALL USERS
@@ -12,20 +13,22 @@ export const getAllUsers = async (req, res) => {
         const query = {};
         if (role) query.role = role;
 
-        const skip = (Number(page) - 1) * Number(limit);
+        const safePage = clampNumber(page, { min: 1, max: 100000, fallback: 1 });
+        const safeLimit = clampNumber(limit, { min: 1, max: 100, fallback: 10 });
+        const skip = (safePage - 1) * safeLimit;
         const total = await User.countDocuments(query);
 
         const users = await User.find(query)
             .select("-password -refreshToken")
             .sort({ createdAt: -1 })
             .skip(skip)
-            .limit(Number(limit));
+            .limit(safeLimit);
 
         return res.status(200).json({
             success: true,
             total,
-            page: Number(page),
-            pages: Math.ceil(total / Number(limit)),
+            page: safePage,
+            pages: Math.ceil(total / safeLimit),
             data: users,
         });
 
@@ -109,7 +112,7 @@ export const toggleUserStatus = async (req, res) => {
 // ----------------------
 export const changeUserRole = async (req, res) => {
     try {
-        const { role } = req.body;
+        const role = normalizeString(req.body.role);
         const user = await User.findById(req.params.id);
         const allowedRoles = ["customer", "admin"];
 
