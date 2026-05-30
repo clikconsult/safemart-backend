@@ -27,17 +27,16 @@ function clearAuthCookies(res) {
         .clearCookie("refreshToken", cookieOptions);
 }
 
+// After
 function getCookieOptions() {
-    const sameSite = process.env.COOKIE_SAME_SITE ||
-        (process.env.NODE_ENV === "production" ? "lax" : "strict");
+  const isProduction = process.env.NODE_ENV === "production";
 
-    return {
-        httpOnly: true,
-        secure: process.env.COOKIE_SECURE === "true" || process.env.NODE_ENV === "production",
-        sameSite: sameSite.toLowerCase(),
-        path: "/",
-        ...(process.env.COOKIE_DOMAIN ? { domain: process.env.COOKIE_DOMAIN } : {}),
-    };
+  return {
+    httpOnly: true,
+    secure: isProduction,           // must be true for sameSite: "none"
+    sameSite: isProduction ? "none" : "strict",  // "none" required for cross-domain
+    path: "/",
+  };
 }
 
 export const register = async (req, res) => {
