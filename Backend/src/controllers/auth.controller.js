@@ -13,11 +13,12 @@ const generateTokens = async (userId) => {
     return { accessToken, refreshToken };
 };
 
-const cookieResponseData = (user, accessToken) => ({
-    success: true,
-    data: user,
-    accessToken,
-});
+const cookieResponseData = (user, accessToken, refreshToken) => ({
+  success: true,
+  data: user,
+  accessToken,
+  refreshToken,
+})
 
 function clearAuthCookies(res) {
     const cookieOptions = getCookieOptions();
@@ -68,7 +69,7 @@ export const register = async (req, res) => {
         return res.status(201)
             .cookie("accessToken", accessToken, cookieOptions)
             .cookie("refreshToken", refreshToken, cookieOptions)
-            .json({ ...cookieResponseData(createdUser, accessToken), message: "Account created successfully" });
+            .json({ ...cookieResponseData(createdUser, accessToken, refreshToken), message: "Account created successfully" });
 
     } catch (error) {
         return res.status(500).json({
@@ -132,7 +133,7 @@ export const login = async (req, res) => {
             .status(200)
             .cookie("accessToken", accessToken, cookieOptions)
             .cookie("refreshToken", refreshToken, cookieOptions)
-            .json({ ...cookieResponseData(loggedInUser, accessToken), message: "Logged in successfully" });
+            .json({ ...cookieResponseData(loggedInUser, accessToken, refreshToken), message: "Logged in successfully" });
 
     } catch (error) {
         return res.status(500).json({
@@ -171,16 +172,18 @@ export const logout = async (req, res) => {
 };
 
 export const refreshAccessToken = async (req, res) => {
-    try {
-        const incomingRefreshToken = req.cookies?.refreshToken;
+  try {
+    // Read from cookie OR request body
+    const incomingRefreshToken = 
+      req.cookies?.refreshToken || req.body?.refreshToken
 
-        if (!incomingRefreshToken) {
-            return res.status(401).json({
-                success: false,
-                message: "Refresh token is required",
-            });
-        }
-
+    if (!incomingRefreshToken) {
+      return res.status(401).json({
+        success: false,
+        message: "Refresh token is required",
+      })
+    }
+    
         const decoded = jwt.verify(incomingRefreshToken, process.env.REFRESH_TOKEN_SECRET);
         const user = await User.findById(decoded._id);
 
@@ -206,7 +209,7 @@ export const refreshAccessToken = async (req, res) => {
             .cookie("accessToken", accessToken, cookieOptions)
             .cookie("refreshToken", refreshToken, cookieOptions)
             .json({
-                ...cookieResponseData(safeUser, accessToken),
+                ...cookieResponseData(safeUser, accessToken, refreshToken),
                 message: "Session refreshed successfully",
             });
     } catch (error) {
