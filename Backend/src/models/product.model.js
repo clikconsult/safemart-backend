@@ -38,6 +38,31 @@ const productSchema = new mongoose.Schema(
             type: String,
             trim: true,
         },
+        modelNumber: {
+            type: String,
+            trim: true,
+        },
+        subCategory: {
+            type: String,
+            trim: true,
+        },
+        keySpecifications: {
+            type: String,
+            trim: true,
+        },
+        costPrice: {
+            type: Number,
+            min: [0, "Cost price cannot be negative"],
+        },
+        reorderLevel: {
+            type: Number,
+            min: [0, "Reorder level cannot be negative"],
+            default: 5,
+        },
+        notesVariants: {
+            type: String,
+            trim: true,
+        },
         images: [
             {
                 type: String,

@@ -14,6 +14,12 @@ const PRODUCT_UPDATE_FIELDS = new Set([
     "discountPrice",
     "category",
     "brand",
+    "modelNumber",
+    "subCategory",
+    "keySpecifications",
+    "costPrice",
+    "reorderLevel",
+    "notesVariants",
     "stock",
     "isFeatured",
     "images",
@@ -40,6 +46,28 @@ function normalizeProductPayload(payload, { partial = false } = {}) {
     }
     if (!partial || Object.prototype.hasOwnProperty.call(payload, "brand")) {
         normalized.brand = normalizeOptionalString(payload.brand);
+    }
+    if (!partial || Object.prototype.hasOwnProperty.call(payload, "modelNumber")) {
+        normalized.modelNumber = normalizeOptionalString(payload.modelNumber);
+    }
+    if (!partial || Object.prototype.hasOwnProperty.call(payload, "subCategory")) {
+        normalized.subCategory = normalizeOptionalString(payload.subCategory);
+    }
+    if (!partial || Object.prototype.hasOwnProperty.call(payload, "keySpecifications")) {
+        normalized.keySpecifications = normalizeOptionalString(payload.keySpecifications);
+    }
+    if (!partial || Object.prototype.hasOwnProperty.call(payload, "costPrice")) {
+        normalized.costPrice = payload.costPrice === "" || payload.costPrice === undefined || payload.costPrice === null
+            ? undefined
+            : normalizeNumber(payload.costPrice, undefined);
+    }
+    if (!partial || Object.prototype.hasOwnProperty.call(payload, "reorderLevel")) {
+        normalized.reorderLevel = payload.reorderLevel === "" || payload.reorderLevel === undefined || payload.reorderLevel === null
+            ? undefined
+            : normalizeNumber(payload.reorderLevel, undefined);
+    }
+    if (!partial || Object.prototype.hasOwnProperty.call(payload, "notesVariants")) {
+        normalized.notesVariants = normalizeOptionalString(payload.notesVariants);
     }
     if (!partial || Object.prototype.hasOwnProperty.call(payload, "stock")) {
         normalized.stock = normalizeNumber(payload.stock);

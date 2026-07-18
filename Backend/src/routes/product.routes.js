@@ -8,6 +8,7 @@ import {
     updateProduct,
     deleteProduct,
 } from "../controllers/product.controller.js";
+import { bulkImportProducts } from "../controllers/productImport.controller.js";
 import { verifyJWT, verifyAdmin } from "../middleware/auth.middleware.js";
 import { validate, validators } from "../middleware/validation.middleware.js";
 
@@ -37,9 +38,16 @@ router.post("/", verifyJWT, verifyAdmin, validate([
     validators.nonNegativeNumber("discountPrice", { required: false, message: "Discount price must be a valid non-negative number" }),
     validators.enumValue("category", categories, { message: "Product category is invalid" }),
     validators.optionalString("brand", { max: 80, message: "Brand name is too long" }),
+    validators.optionalString("modelNumber", { max: 80, message: "Model number is too long" }),
+    validators.optionalString("subCategory", { max: 80, message: "Sub-category is too long" }),
+    validators.optionalString("keySpecifications", { max: 2000, message: "Key specifications are too long" }),
+    validators.nonNegativeNumber("costPrice", { required: false, message: "Cost price must be a valid non-negative number" }),
+    validators.nonNegativeNumber("reorderLevel", { required: false, message: "Reorder level must be a valid non-negative number" }),
+    validators.optionalString("notesVariants", { max: 2000, message: "Notes / variants are too long" }),
     validators.nonNegativeNumber("stock"),
     validators.booleanLike("isFeatured"),
 ]), createProduct);
+router.post("/bulk-import", verifyJWT, verifyAdmin, bulkImportProducts);
 router.put("/:id", verifyJWT, verifyAdmin, validate([
     validators.mongoId("id"),
 ]), updateProduct);
